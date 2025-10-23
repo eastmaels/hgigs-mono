@@ -510,7 +510,7 @@ export default function PaymentPage() {
                   <Button onClick={() => router.push("/browse")} className="flex-1">
                     Browse More Gigs
                   </Button>
-                  <Button onClick={() => router.push("/profile")} variant="outline" className="flex-1">
+                  <Button onClick={() => router.push("/my-orders")} variant="outline" className="flex-1">
                     My Orders
                   </Button>
                 </div>
