@@ -1,7 +1,25 @@
 {
   "hedera_testnet": {
-    "latest": null,
-    "history": []
+    "latest": {
+      "proxyAddress": "0xA96a94436e8A753c2f16082F0f08afE25ffae393",
+      "implementationAddress": "0xbE45F84e0537750c54fFCaa4e97c48a540bE31E9",
+      "deployerAddress": "0x7CF906b70Bf719BD28d2132323e781A6D8011Fe4",
+      "transactionHash": "0xcc247af011eb803eff6a97049eff750c7329bbdd5d3bfbbeee75d9374434c130",
+      "network": "hedera_testnet",
+      "timestamp": "2025-10-23T02:00:19.924Z",
+      "chainId": "296"
+    },
+    "history": [
+      {
+        "proxyAddress": "0xA96a94436e8A753c2f16082F0f08afE25ffae393",
+        "implementationAddress": "0xbE45F84e0537750c54fFCaa4e97c48a540bE31E9",
+        "deployerAddress": "0x7CF906b70Bf719BD28d2132323e781A6D8011Fe4",
+        "transactionHash": "0xcc247af011eb803eff6a97049eff750c7329bbdd5d3bfbbeee75d9374434c130",
+        "network": "hedera_testnet",
+        "timestamp": "2025-10-23T02:00:19.924Z",
+        "chainId": "296"
+      }
+    ]
   },
   "hedera_mainnet": {
     "latest": null,

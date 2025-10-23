@@ -10,14 +10,14 @@ module.exports = {
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
       chainId: 296,
       gas: 3000000,
-      gasPrice: 410000000000, // 410 gwei
+      gasPrice: 540000000000, // 540 gwei
     },
     hedera_mainnet: {
       url: "https://mainnet.hashio.io/api",
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
       chainId: 295,
       gas: 3000000,
-      gasPrice: 410000000000, // 410 gwei
+      gasPrice: 540000000000, // 540 gwei
     }
   },
   etherscan: {
