@@ -1,0 +1,10 @@
+{
+  "hedera_testnet": {
+    "latest": null,
+    "history": []
+  },
+  "hedera_mainnet": {
+    "latest": null,
+    "history": []
+  }
+}

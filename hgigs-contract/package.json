@@ -9,7 +9,8 @@
     "deploy:testnet": "hardhat run scripts/deploy.js --network hedera_testnet",
     "deploy:mainnet": "hardhat run scripts/deploy.js --network hedera_mainnet",
     "upgrade:testnet": "hardhat run scripts/upgrade.js --network hedera_testnet",
-    "upgrade:mainnet": "hardhat run scripts/upgrade.js --network hedera_mainnet"
+    "upgrade:mainnet": "hardhat run scripts/upgrade.js --network hedera_mainnet",
+    "address": "node scripts/getAddress.js"
   },
   "dependencies": {
     "@openzeppelin/contracts-upgradeable": "^5.0.0",

@@ -1,10 +1,33 @@
 const { ethers } = require("hardhat");
+const fs = require("fs");
+const path = require("path");
+
+function getContractAddress() {
+  const deploymentsPath = path.join(__dirname, "..", "deployments.json");
+  const network = hre.network.name;
+
+  try {
+    const data = fs.readFileSync(deploymentsPath, "utf8");
+    const deployments = JSON.parse(data);
+    const deployment = deployments[network]?.latest;
+
+    if (deployment?.proxyAddress) {
+      return deployment.proxyAddress;
+    }
+  } catch (error) {
+    // If deployments.json doesn't exist or has issues, fall back to hardcoded address
+  }
+
+  // Fallback to hardcoded address if not found in deployments.json
+  console.warn("⚠️  Could not find contract address in deployments.json, using fallback address");
+  return "0x47fe84b56840a20BF579300207EBBaBc615AE1e9";
+}
 
 async function main() {
   console.log("=== Order Payment Script ===\n");
 
-  // Get the deployed contract
-  const contractAddress = "0x47fe84b56840a20BF579300207EBBaBc615AE1e9";
+  // Get the deployed contract address from deployments.json
+  const contractAddress = getContractAddress();
   const GigMarketplace = await ethers.getContractFactory("GigMarketplace");
   const contract = GigMarketplace.attach(contractAddress);
 

@@ -22,3 +22,6 @@ cache/
 .vscode/
 .claude/
 .cursor/
+
+# Deployment tracking (optional - remove this line if you want to commit deployment addresses)
+# deployments.json

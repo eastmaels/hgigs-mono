@@ -113,6 +113,63 @@ npm run deploy:testnet
 npm run deploy:mainnet
 ```
 
+The deployment script will automatically save the contract address and deployment information to `deployments.json`.
+
+## Deployment Tracking
+
+The project includes an automatic deployment tracking system that saves contract addresses and deployment details to `deployments.json`. This makes it easy to retrieve contract addresses and manage deployments across different networks.
+
+### Retrieving Contract Addresses
+
+After deploying a contract, you can retrieve the address using:
+
+```bash
+# Show all latest deployments
+npm run address
+
+# Show specific network deployment
+npm run address -- --network testnet
+npm run address -- --network mainnet
+
+# Show deployment history
+npm run address -- --history
+npm run address -- --network testnet --history
+```
+
+### Deployment Information Stored
+
+The tracking system automatically saves:
+- **Proxy Address** - The main contract address (this never changes during upgrades)
+- **Implementation Address** - The address of the implementation contract
+- **Deployer Address** - The account that deployed the contract
+- **Transaction Hash** - The deployment transaction hash
+- **Network** - Which network it was deployed to (hedera_testnet/hedera_mainnet)
+- **Timestamp** - When the deployment occurred
+- **Chain ID** - The chain ID of the network
+
+### deployments.json Structure
+
+```json
+{
+  "hedera_testnet": {
+    "latest": {
+      "proxyAddress": "0x...",
+      "implementationAddress": "0x...",
+      "deployerAddress": "0x...",
+      "transactionHash": "0x...",
+      "network": "hedera_testnet",
+      "timestamp": "2025-10-23T12:00:00.000Z",
+      "chainId": "296"
+    },
+    "history": [...]
+  },
+  "hedera_mainnet": {
+    "latest": {...},
+    "history": [...]
+  }
+}
+```
+
 ## Upgrading the Contract
 
 The contract uses OpenZeppelin's upgradeable proxy pattern, allowing for seamless upgrades while preserving state and addresses.
@@ -125,19 +182,23 @@ The contract uses OpenZeppelin's upgradeable proxy pattern, allowing for seamles
 npm run compile
 ```
 
-3. **Set the proxy address** in your environment:
+3. **Deploy the upgrade**:
 ```bash
-export PROXY_ADDRESS=0x... # Your deployed proxy address
-```
+# For testnet - automatically uses address from deployments.json
+npm run upgrade:testnet
 
-4. **Deploy the upgrade**:
-```bash
-# For testnet
+# For mainnet - automatically uses address from deployments.json
+npm run upgrade:mainnet
+
+# Or specify a custom proxy address
 PROXY_ADDRESS=0x... npm run upgrade:testnet
-
-# For mainnet  
-PROXY_ADDRESS=0x... npm run upgrade:mainnet
 ```
+
+The upgrade script will automatically:
+- Read the proxy address from `deployments.json` if not provided via environment variable
+- Deploy the new implementation contract
+- Update the proxy to point to the new implementation
+- Save the new implementation address to `deployments.json`
 
 ### Upgrade Safety
 
