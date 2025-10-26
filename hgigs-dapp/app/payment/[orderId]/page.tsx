@@ -597,6 +597,16 @@ export default function PaymentPage() {
 
       console.log(`[RELEASE PAYMENT] ✅ All pre-flight checks passed!`)
 
+      // Debug: Check contract balance and amounts before release
+      console.log(`[RELEASE PAYMENT] Calling debug function to inspect balance...`)
+      try {
+        const debugInfo = await contractService.debugReleasePayment(parseInt(orderId))
+        console.log(`[RELEASE PAYMENT] 💰 Balance Debug Info:`, debugInfo)
+      } catch (debugError) {
+        console.error(`[RELEASE PAYMENT] ⚠️ Debug function failed:`, debugError)
+        // Continue even if debug fails
+      }
+
       toast({
         title: "Releasing Payment",
         description: "Please confirm the transaction in MetaMask...",

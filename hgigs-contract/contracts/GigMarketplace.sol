@@ -337,4 +337,28 @@ contract GigMarketplace is
 
         return providers;
     }
+
+    // Debug function to inspect balance and payment amounts before release
+    function debugReleasePayment(uint256 _orderId) external view returns (
+        uint256 contractBalance,
+        uint256 orderPaidAmount,
+        uint256 platformFeeAmount,
+        uint256 providerAmount,
+        uint256 platformFeePercent_,
+        bool hasEnoughBalance
+    ) {
+        uint256 paidAmount = orders[_orderId].paidAmount;
+        uint256 platformFee = (paidAmount * platformFeePercent) / 100;
+        uint256 providerAmt = paidAmount - platformFee;
+        uint256 balance = address(this).balance;
+
+        return (
+            balance,
+            paidAmount,
+            platformFee,
+            providerAmt,
+            platformFeePercent,
+            balance >= paidAmount
+        );
+    }
 }

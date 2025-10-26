@@ -42,7 +42,10 @@ const CONTRACT_ABI = [
   "event OrderCreated(uint256 indexed orderId, uint256 indexed gigId, address indexed client, uint256 amount)",
   "event OrderPaid(uint256 indexed orderId, address indexed client, uint256 amount)",  // New event
   "event OrderCompleted(uint256 indexed orderId)",
-  "event PaymentReleased(uint256 indexed orderId, address indexed provider, uint256 amount)"
+  "event PaymentReleased(uint256 indexed orderId, address indexed provider, uint256 amount)",
+
+  // Debug functions
+  "function debugReleasePayment(uint256 _orderId) view returns (uint256 contractBalance, uint256 orderPaidAmount, uint256 platformFeeAmount, uint256 providerAmount, uint256 platformFeePercent_, bool hasEnoughBalance)"
 ]
 
 export class ContractService {
@@ -363,6 +366,45 @@ export class ContractService {
     console.log(`[CONTRACT SERVICE] ReleasePayment for order ${orderId}`)
 
     return await contractWithSigner.releasePayment(orderId)
+  }
+
+  async debugReleasePayment(orderId: number): Promise<{
+    contractBalance: string
+    orderPaidAmount: string
+    platformFeeAmount: string
+    providerAmount: string
+    platformFeePercent: string
+    hasEnoughBalance: boolean
+  }> {
+    if (!this.contract) throw new Error("Contract not initialized")
+    try {
+      const result = await this.contract.debugReleasePayment(orderId)
+
+      console.log(`[CONTRACT SERVICE] Debug Release Payment for Order ${orderId}:`, {
+        contractBalance: result.contractBalance.toString(),
+        contractBalanceFormatted: ethers.formatEther(result.contractBalance),
+        orderPaidAmount: result.orderPaidAmount.toString(),
+        orderPaidAmountFormatted: ethers.formatEther(result.orderPaidAmount),
+        platformFeeAmount: result.platformFeeAmount.toString(),
+        platformFeeAmountFormatted: ethers.formatEther(result.platformFeeAmount),
+        providerAmount: result.providerAmount.toString(),
+        providerAmountFormatted: ethers.formatEther(result.providerAmount),
+        platformFeePercent: result.platformFeePercent_.toString(),
+        hasEnoughBalance: result.hasEnoughBalance
+      })
+
+      return {
+        contractBalance: ethers.formatEther(result.contractBalance),
+        orderPaidAmount: ethers.formatEther(result.orderPaidAmount),
+        platformFeeAmount: ethers.formatEther(result.platformFeeAmount),
+        providerAmount: ethers.formatEther(result.providerAmount),
+        platformFeePercent: result.platformFeePercent_.toString(),
+        hasEnoughBalance: result.hasEnoughBalance
+      }
+    } catch (error) {
+      console.error("Error getting debug release payment info:", error)
+      throw error
+    }
   }
 
   async getProviderOrders(providerAddress: string): Promise<any[]> {
