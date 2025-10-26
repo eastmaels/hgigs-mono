@@ -216,18 +216,25 @@ contract GigMarketplace is
 
         if (tokenAddress == address(0)) {
             // Native token (HBAR) payment
-            // Check contract has sufficient balance
-            require(address(this).balance >= paidAmount, "Insufficient contract balance");
+            // Note: On Hedera, address(this).balance returns tinybars (8 decimals)
+            // but paidAmount is stored in wei (18 decimals), so we need to convert
+            // Conversion: 1 tinybar = 10^10 wei
+            uint256 balanceInWei = address(this).balance * 10**10;
+            require(balanceInWei >= paidAmount, "Insufficient contract balance");
+
+            // Convert amounts from wei back to tinybars for actual transfer
+            uint256 providerAmountInTinybars = providerAmount / 10**10;
+            uint256 platformFeeInTinybars = platformFee / 10**10;
 
             // Update state before transfers (checks-effects-interactions pattern)
             orders[_orderId].paymentReleased = true;
 
             // Transfer to provider using .call for better error handling
-            (bool providerSuccess, ) = orders[_orderId].provider.call{value: providerAmount}("");
+            (bool providerSuccess, ) = orders[_orderId].provider.call{value: providerAmountInTinybars}("");
             require(providerSuccess, "Provider payment failed");
 
             // Transfer platform fee to owner
-            (bool feeSuccess, ) = payable(owner()).call{value: platformFee}("");
+            (bool feeSuccess, ) = payable(owner()).call{value: platformFeeInTinybars}("");
             require(feeSuccess, "Platform fee payment failed");
         } else {
             // ERC20 token payment
@@ -340,7 +347,8 @@ contract GigMarketplace is
 
     // Debug function to inspect balance and payment amounts before release
     function debugReleasePayment(uint256 _orderId) external view returns (
-        uint256 contractBalance,
+        uint256 contractBalanceTinybars,
+        uint256 contractBalanceWei,
         uint256 orderPaidAmount,
         uint256 platformFeeAmount,
         uint256 providerAmount,
@@ -350,15 +358,17 @@ contract GigMarketplace is
         uint256 paidAmount = orders[_orderId].paidAmount;
         uint256 platformFee = (paidAmount * platformFeePercent) / 100;
         uint256 providerAmt = paidAmount - platformFee;
-        uint256 balance = address(this).balance;
+        uint256 balanceTinybars = address(this).balance;
+        uint256 balanceWei = balanceTinybars * 10**10; // Convert tinybars to wei
 
         return (
-            balance,
+            balanceTinybars,
+            balanceWei,
             paidAmount,
             platformFee,
             providerAmt,
             platformFeePercent,
-            balance >= paidAmount
+            balanceWei >= paidAmount
         );
     }
 }

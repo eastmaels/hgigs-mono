@@ -45,7 +45,7 @@ const CONTRACT_ABI = [
   "event PaymentReleased(uint256 indexed orderId, address indexed provider, uint256 amount)",
 
   // Debug functions
-  "function debugReleasePayment(uint256 _orderId) view returns (uint256 contractBalance, uint256 orderPaidAmount, uint256 platformFeeAmount, uint256 providerAmount, uint256 platformFeePercent_, bool hasEnoughBalance)"
+  "function debugReleasePayment(uint256 _orderId) view returns (uint256 contractBalanceTinybars, uint256 contractBalanceWei, uint256 orderPaidAmount, uint256 platformFeeAmount, uint256 providerAmount, uint256 platformFeePercent_, bool hasEnoughBalance)"
 ]
 
 export class ContractService {
@@ -369,7 +369,8 @@ export class ContractService {
   }
 
   async debugReleasePayment(orderId: number): Promise<{
-    contractBalance: string
+    contractBalanceTinybars: string
+    contractBalanceWei: string
     orderPaidAmount: string
     platformFeeAmount: string
     providerAmount: string
@@ -381,8 +382,10 @@ export class ContractService {
       const result = await this.contract.debugReleasePayment(orderId)
 
       console.log(`[CONTRACT SERVICE] Debug Release Payment for Order ${orderId}:`, {
-        contractBalance: result.contractBalance.toString(),
-        contractBalanceFormatted: ethers.formatEther(result.contractBalance),
+        contractBalanceTinybars: result.contractBalanceTinybars.toString(),
+        contractBalanceTinybarsFormatted: (Number(result.contractBalanceTinybars) / 100000000).toFixed(8) + ' HBAR',
+        contractBalanceWei: result.contractBalanceWei.toString(),
+        contractBalanceWeiFormatted: ethers.formatEther(result.contractBalanceWei),
         orderPaidAmount: result.orderPaidAmount.toString(),
         orderPaidAmountFormatted: ethers.formatEther(result.orderPaidAmount),
         platformFeeAmount: result.platformFeeAmount.toString(),
@@ -394,7 +397,8 @@ export class ContractService {
       })
 
       return {
-        contractBalance: ethers.formatEther(result.contractBalance),
+        contractBalanceTinybars: (Number(result.contractBalanceTinybars) / 100000000).toFixed(8) + ' HBAR',
+        contractBalanceWei: ethers.formatEther(result.contractBalanceWei),
         orderPaidAmount: ethers.formatEther(result.orderPaidAmount),
         platformFeeAmount: ethers.formatEther(result.platformFeeAmount),
         providerAmount: ethers.formatEther(result.providerAmount),
