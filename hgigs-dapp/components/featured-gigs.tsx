@@ -123,12 +123,21 @@ export function FeaturedGigs() {
       }
     } catch (error: any) {
       console.error("Order creation error:", error)
-      
+
+      // Extract clean error message from contract revert
       let errorMessage = "Failed to create order"
-      if (error.code === "ACTION_REJECTED") {
+      if (error.code === "ACTION_REJECTED" || error.message?.includes("user rejected")) {
         errorMessage = "Transaction was rejected by user"
+      } else if (error.reason) {
+        // Ethers v6 provides clean revert reason
+        errorMessage = error.reason
+      } else if (error.revert?.args?.[0]) {
+        // Extract from revert args
+        errorMessage = error.revert.args[0]
       } else if (error.message) {
-        errorMessage = error.message
+        // Try to extract message from quotes if it's a revert string
+        const match = error.message.match(/\"([^\"]+)\"/)
+        errorMessage = match ? match[1] : error.message
       }
 
       toast({

@@ -305,109 +305,40 @@ export class ContractService {
 
   async payOrder(orderId: number): Promise<ethers.TransactionResponse> {
     const contractWithSigner = await this.getContractWithSigner()
-    
-    // Get the raw order details directly from contract (not formatted)
+
+    // Get the order amount from the contract
     const rawOrder = await this.contract?.getOrder(orderId)
     if (!rawOrder) {
       throw new Error("Order not found")
     }
-    
-    // Also get the formatted order for comparison
-    const formattedOrder = await this.getOrder(orderId)
-    
-    console.log(`[CONTRACT SERVICE] PayOrder comparison:`, {
+
+    // Ensure the amount is a proper BigInt
+    const paymentAmount = BigInt(rawOrder.amount.toString())
+
+    console.log(`[CONTRACT SERVICE] PayOrder for order ${orderId}:`, {
       orderId: orderId,
-      raw: {
-        amount: rawOrder.amount.toString(),
-        type: typeof rawOrder.amount,
-        isString: typeof rawOrder.amount === 'string',
-        isBigInt: typeof rawOrder.amount === 'bigint'
-      },
-      formatted: {
-        amount: formattedOrder.amount,
-        type: typeof formattedOrder.amount,
-        parseEtherWouldWork: typeof formattedOrder.amount === 'string'
-      },
-      comparison: {
-        rawToString: rawOrder.amount.toString(),
-        formattedParsed: ethers.parseEther(formattedOrder.amount).toString(),
-        areEqual: rawOrder.amount.toString() === ethers.parseEther(formattedOrder.amount).toString()
-      }
+      paymentAmount: paymentAmount.toString(),
+      paymentAmountFormatted: ethers.formatEther(paymentAmount),
+      paymentAmountType: typeof paymentAmount,
+      overridesObject: { value: paymentAmount }
     })
-    
-    // Try multiple approaches to ensure value is properly included
-    const amountInWei = rawOrder.amount
-    const amountAsString = rawOrder.amount.toString()
-    const amountAsBigInt = BigInt(rawOrder.amount.toString())
-    
-    console.log(`[CONTRACT SERVICE] About to call payOrder with multiple formats:`, {
-      orderId: orderId,
-      original: { value: amountInWei, type: typeof amountInWei },
-      asString: { value: amountAsString, type: typeof amountAsString },
-      asBigInt: { value: amountAsBigInt, type: typeof amountAsBigInt }
+
+    // Call the contract method directly with the value option
+    // Ethers v6 requires value to be BigInt or number
+    // Set gasLimit manually to bypass estimateGas and see debug events on chain
+    const tx = await contractWithSigner.payOrder(orderId, {
+      value: paymentAmount,
+      gasLimit: 500000  // Skip gas estimation to see debug events on chain
     })
-    
-    // Let's also check what the gig price was when this order was created
-    try {
-      const associatedGig = await this.contract.getGig(rawOrder.gigId)
-      console.log(`[CONTRACT SERVICE] Associated gig info:`, {
-        gigId: rawOrder.gigId.toString(),
-        gigPrice: associatedGig.price.toString(),
-        gigPriceFormatted: ethers.formatEther(associatedGig.price),
-        orderAmount: rawOrder.amount.toString(),
-        amountsMatch: associatedGig.price.toString() === rawOrder.amount.toString()
-      })
-    } catch (gigError) {
-      console.error('[CONTRACT SERVICE] Could not fetch associated gig:', gigError)
-    }
-    
-    // Try a completely different approach - manually construct the transaction
-    console.log('[CONTRACT SERVICE] Attempting manual transaction construction')
-    
-    try {
-      // Get the contract function interface
-      const contractInterface = new ethers.Interface([
-        "function payOrder(uint256 _orderId) payable"
-      ])
-      
-      // Encode the function call
-      const data = contractInterface.encodeFunctionData("payOrder", [orderId])
-      
-      const fromAddress = await (await this.getContractWithSigner()).getAddress()
-      
-      console.log('[CONTRACT SERVICE] Manual transaction details:', {
-        to: CONTRACT_ADDRESS,
-        data: data,
-        dataLength: data.length,
-        value: amountAsString,
-        valueInWei: amountAsString,
-        from: fromAddress,
-        orderId: orderId,
-        functionSignature: contractInterface.getFunction("payOrder").selector
-      })
-      
-      // Create the transaction object manually
-      const txRequest = {
-        to: CONTRACT_ADDRESS,
-        data: data,
-        value: amountAsString,
-        gasLimit: 5000000, // Increase gas limit for contract interaction
-        type: 2 // Use EIP-1559 transaction type
-      }
-      
-      // Send the transaction manually
-      const signer = await getHederaSigner()
-      if (!signer) {
-        throw new Error("No signer available")
-      }
-      
-      console.log('[CONTRACT SERVICE] Sending manual transaction with signer')
-      return await signer.sendTransaction(txRequest)
-      
-    } catch (manualError) {
-      console.error('[CONTRACT SERVICE] Manual transaction failed:', manualError)
-      throw manualError
-    }
+
+    console.log(`[CONTRACT SERVICE] Transaction sent:`, {
+      hash: tx.hash,
+      to: tx.to,
+      value: tx.value?.toString(),
+      data: tx.data
+    })
+
+    return tx
   }
 
   async payOrderWithToken(orderId: number): Promise<ethers.TransactionResponse> {
@@ -420,10 +351,18 @@ export class ContractService {
 
   async completeOrder(orderId: number, deliverable: string): Promise<ethers.TransactionResponse> {
     const contractWithSigner = await this.getContractWithSigner()
-    
+
     console.log(`[CONTRACT SERVICE] CompleteOrder for order ${orderId} with deliverable:`, deliverable)
-    
+
     return await contractWithSigner.completeOrder(orderId, deliverable)
+  }
+
+  async releasePayment(orderId: number): Promise<ethers.TransactionResponse> {
+    const contractWithSigner = await this.getContractWithSigner()
+
+    console.log(`[CONTRACT SERVICE] ReleasePayment for order ${orderId}`)
+
+    return await contractWithSigner.releasePayment(orderId)
   }
 
   async getProviderOrders(providerAddress: string): Promise<any[]> {

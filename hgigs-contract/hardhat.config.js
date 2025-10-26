@@ -3,7 +3,15 @@ require("@openzeppelin/hardhat-upgrades");
 require("dotenv").config();
 
 module.exports = {
-  solidity: "0.8.20",
+  solidity: {
+    version: "0.8.20",
+    settings: {
+      optimizer: {
+        enabled: true,
+        runs: 200  // Lower runs = smaller deployment size (good for upgradeable contracts)
+      }
+    }
+  },
   networks: {
     hedera_testnet: {
       url: "https://testnet.hashio.io/api",
