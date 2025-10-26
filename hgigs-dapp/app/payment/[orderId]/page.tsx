@@ -47,14 +47,33 @@ export default function PaymentPage() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [isCheckingStatus, setIsCheckingStatus] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [isReleasingPayment, setIsReleasingPayment] = useState(false)
   const [paymentHash, setPaymentHash] = useState<string>("")
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
+  const [currentUserAddress, setCurrentUserAddress] = useState<string | null>(null)
 
   useEffect(() => {
     if (orderId) {
       loadOrderData()
     }
   }, [orderId])
+
+  // Get current user's wallet address
+  useEffect(() => {
+    const getCurrentAddress = async () => {
+      if (typeof window.ethereum !== 'undefined') {
+        try {
+          const accounts = await window.ethereum.request({ method: 'eth_accounts' })
+          if (accounts && accounts.length > 0) {
+            setCurrentUserAddress(accounts[0].toLowerCase())
+          }
+        } catch (error) {
+          console.error("Error getting current address:", error)
+        }
+      }
+    }
+    getCurrentAddress()
+  }, [])
 
   // Periodic status polling - checks every 15 seconds
   useEffect(() => {
@@ -244,7 +263,14 @@ export default function PaymentPage() {
   }
 
   const copyPaymentData = async () => {
-    if (!order || !gig) return
+    if (!order || !gig) {
+      toast({
+        title: "Cannot Copy",
+        description: "Order data is still loading. Please wait and try again.",
+        variant: "destructive",
+      })
+      return
+    }
 
     // Create contract transaction data
     const contractInterface = new ethers.Interface([
@@ -280,8 +306,15 @@ export default function PaymentPage() {
   }
 
   const copyMetaMaskUri = async () => {
-    if (!order || !gig) return
-    
+    if (!order || !gig) {
+      toast({
+        title: "Cannot Copy",
+        description: "Order data is still loading. Please wait and try again.",
+        variant: "destructive",
+      })
+      return
+    }
+
     // Create contract transaction URI
     const contractInterface = new ethers.Interface([
       "function payOrder(uint256 _orderId) payable"
@@ -335,6 +368,11 @@ export default function PaymentPage() {
   const payWithMetaMask = async () => {
     if (!orderId || !order) {
       console.log(`[METAMASK PAY] Missing required data: orderId=${orderId}, order=${!!order}`)
+      toast({
+        title: "Cannot Process Payment",
+        description: "Order data is still loading. Please wait and try again.",
+        variant: "destructive",
+      })
       return
     }
 
@@ -376,7 +414,7 @@ export default function PaymentPage() {
       })
 
       console.log(`[METAMASK PAY] Calling contractService.payOrder(${orderId})`)
-      
+
       let tx
       try {
         // Use the contract service's payOrder method
@@ -427,20 +465,26 @@ export default function PaymentPage() {
 
     } catch (error: any) {
       console.error("[METAMASK PAY] Payment error:", error)
-      
+
       let errorMessage = "Payment failed. Please try again."
-      
+
       // Handle specific error types
-      if (error.code === "ACTION_REJECTED" || error.code === 4001) {
+      if (error.code === "ACTION_REJECTED" || error.code === 4001 || error.message?.includes("user rejected")) {
         errorMessage = "Transaction was rejected by user"
       } else if (error.code === "INSUFFICIENT_FUNDS" || error.message?.includes("insufficient funds")) {
         errorMessage = "Insufficient funds for transaction"
       } else if (error.code === "NETWORK_ERROR") {
         errorMessage = "Network error. Please check your connection and try again."
-      } else if (error.message?.includes("user rejected")) {
-        errorMessage = "Transaction was rejected by user"
+      } else if (error.reason) {
+        // Ethers v6 provides clean revert reason from contract
+        errorMessage = error.reason
+      } else if (error.revert?.args?.[0]) {
+        // Extract from revert args
+        errorMessage = error.revert.args[0]
       } else if (error.message) {
-        errorMessage = error.message
+        // Try to extract message from quotes if it's a revert string
+        const match = error.message.match(/\"([^\"]+)\"/)
+        errorMessage = match ? match[1] : error.message
       }
 
       toast({
@@ -452,6 +496,183 @@ export default function PaymentPage() {
       // Always reset processing state
       console.log(`[METAMASK PAY] Resetting processing state`)
       setIsProcessing(false)
+    }
+  }
+
+  const handleReleasePayment = async () => {
+    if (!order) {
+      toast({
+        title: "Cannot Release Payment",
+        description: "Order data is not available. Please refresh the page and try again.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      setIsReleasingPayment(true)
+      console.log(`[RELEASE PAYMENT] Starting payment release for Order ${orderId}`)
+
+      // Get fresh order data from blockchain to ensure we have the latest state
+      console.log(`[RELEASE PAYMENT] Fetching fresh order data from blockchain...`)
+      const freshOrder = await contractService.getOrder(parseInt(orderId))
+
+      console.log(`[RELEASE PAYMENT] ==== DEBUG INFO ====`)
+      console.log(`Order ID: ${orderId}`)
+      console.log(`Current User Address: ${currentUserAddress}`)
+      console.log(`Order Client (from blockchain): ${freshOrder.client}`)
+      console.log(`Order Provider (from blockchain): ${freshOrder.provider}`)
+      console.log(`Order State (from blockchain):`, {
+        isPaid: freshOrder.isPaid,
+        isCompleted: freshOrder.isCompleted,
+        paymentReleased: freshOrder.paymentReleased,
+        amount: freshOrder.amount
+      })
+      console.log(`Frontend State (may be cached):`, {
+        isPaid: order.isPaid,
+        isCompleted: order.isCompleted,
+        paymentReleased: order.paymentReleased,
+        amount: order.amount
+      })
+      console.log(`[RELEASE PAYMENT] ====================`)
+
+      // Check if MetaMask is connected
+      if (!currentUserAddress) {
+        console.error(`[RELEASE PAYMENT] ❌ No wallet connected`)
+        toast({
+          title: "Wallet Not Connected",
+          description: "Please connect your MetaMask wallet to continue.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Check if user is the client (use fresh data from blockchain)
+      if (freshOrder.client.toLowerCase() !== currentUserAddress.toLowerCase()) {
+        console.error(`[RELEASE PAYMENT] ❌ User is not the client`)
+        console.error(`Expected client: ${freshOrder.client}`)
+        console.error(`Current user: ${currentUserAddress}`)
+        toast({
+          title: "Not Authorized",
+          description: `Only the client (${freshOrder.client.slice(0, 6)}...${freshOrder.client.slice(-4)}) can release payment. You are: ${currentUserAddress.slice(0, 6)}...${currentUserAddress.slice(-4)}`,
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Check if order is paid
+      if (!freshOrder.isPaid) {
+        console.error(`[RELEASE PAYMENT] ❌ Order is not paid`)
+        toast({
+          title: "Order Not Paid",
+          description: "The order must be paid before you can release payment.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Check if order is completed
+      if (!freshOrder.isCompleted) {
+        console.error(`[RELEASE PAYMENT] ❌ Order is not completed`)
+        toast({
+          title: "Order Not Completed",
+          description: "The provider must complete the order before you can release payment.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Check if payment is already released
+      if (freshOrder.paymentReleased) {
+        console.error(`[RELEASE PAYMENT] ❌ Payment already released`)
+        toast({
+          title: "Already Released",
+          description: "Payment has already been released for this order.",
+          variant: "destructive",
+        })
+        // Refresh UI to show correct state
+        await loadOrderData(true)
+        return
+      }
+
+      console.log(`[RELEASE PAYMENT] ✅ All pre-flight checks passed!`)
+
+      // Debug: Check contract balance and amounts before release
+      console.log(`[RELEASE PAYMENT] Calling debug function to inspect balance...`)
+      try {
+        const debugInfo = await contractService.debugReleasePayment(parseInt(orderId))
+        console.log(`[RELEASE PAYMENT] 💰 Balance Debug Info:`, debugInfo)
+      } catch (debugError) {
+        console.error(`[RELEASE PAYMENT] ⚠️ Debug function failed:`, debugError)
+        // Continue even if debug fails
+      }
+
+      toast({
+        title: "Releasing Payment",
+        description: "Please confirm the transaction in MetaMask...",
+      })
+
+      console.log(`[RELEASE PAYMENT] Calling contractService.releasePayment(${orderId})`)
+
+      const tx = await contractService.releasePayment(parseInt(orderId))
+      console.log(`[RELEASE PAYMENT] Transaction submitted:`, tx.hash)
+
+      toast({
+        title: "Transaction Submitted",
+        description: `Transaction hash: ${tx.hash.slice(0, 10)}...`,
+      })
+
+      // Wait for transaction confirmation
+      console.log(`[RELEASE PAYMENT] Waiting for transaction confirmation...`)
+      const receipt = await tx.wait()
+
+      if (receipt?.status === 1) {
+        console.log(`[RELEASE PAYMENT] ✅ Payment released successfully!`, receipt.hash)
+
+        toast({
+          title: "Payment Released!",
+          description: "The payment has been released to the provider.",
+        })
+
+        // Reload order data to show updated status
+        await loadOrderData(true)
+      } else {
+        throw new Error("Transaction failed")
+      }
+    } catch (error: any) {
+      console.error("[RELEASE PAYMENT] Error:", error)
+
+      let errorMessage = "Failed to release payment. Please try again."
+
+      // More specific error handling
+      if (error.code === "ACTION_REJECTED" || error.message?.includes("user rejected")) {
+        errorMessage = "Transaction was cancelled."
+      } else if (error.message?.includes("Only order client")) {
+        errorMessage = "You are not the client for this order. Please use the correct wallet."
+      } else if (error.message?.includes("Order is not completed")) {
+        errorMessage = "The order must be completed before releasing payment."
+      } else if (error.message?.includes("Order is not paid")) {
+        errorMessage = "The order must be paid before releasing payment."
+      } else if (error.message?.includes("Payment already released")) {
+        errorMessage = "Payment has already been released."
+      } else if (error.message?.includes("Insufficient contract balance")) {
+        errorMessage = "The contract does not have sufficient balance to release payment. This is a critical error - please contact support."
+      } else if (error.message?.includes("Provider payment failed")) {
+        errorMessage = "Failed to send payment to the provider. The provider's wallet may not accept payments."
+      } else if (error.message?.includes("Platform fee payment failed")) {
+        errorMessage = "Failed to send platform fee. Please contact support."
+      } else if (error.message) {
+        errorMessage = error.message
+      }
+
+      toast({
+        title: "Release Failed",
+        description: errorMessage,
+        variant: "destructive",
+      })
+    } finally {
+      console.log(`[RELEASE PAYMENT] Resetting releasing state`)
+      setIsReleasingPayment(false)
     }
   }
 
@@ -487,36 +708,199 @@ export default function PaymentPage() {
     )
   }
 
+  // For paid orders, show order status and deliverable/release payment UI
   if (order.isPaid) {
+    const isClient = currentUserAddress && order.client.toLowerCase() === currentUserAddress
+    const isProvider = currentUserAddress && order.provider.toLowerCase() === currentUserAddress
+
     return (
       <div className="min-h-screen bg-background">
         <Header />
         <main className="container max-w-4xl mx-auto px-4 py-8">
-          <Card className="max-w-md mx-auto">
-            <CardContent className="pt-6">
-              <div className="text-center">
-                <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-4" />
-                <h1 className="text-2xl font-bold mb-2">Already Paid!</h1>
-                <p className="text-muted-foreground mb-4">
-                  This order has already been paid for.
-                </p>
-                <div className="space-y-2 mb-6">
-                  <p className="text-sm">Order ID:</p>
-                  <p className="text-lg font-mono bg-muted p-2 rounded">
-                    #{orderId}
-                  </p>
+          <div className="mb-6">
+            <Button
+              variant="ghost"
+              onClick={() => router.back()}
+              className="mb-4"
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back
+            </Button>
+
+            <h1 className="text-3xl font-bold mb-2">Order #{orderId}</h1>
+            <p className="text-muted-foreground">
+              {gig.title}
+            </p>
+          </div>
+
+          {/* Order Status Card */}
+          <Card className="mb-6">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                Order Status
+                {order.paymentReleased && <CheckCircle className="h-5 w-5 text-green-500" />}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <div className="text-xs text-muted-foreground mb-1">Payment Status</div>
+                  <Badge variant="default">Paid</Badge>
                 </div>
-                <div className="flex gap-2">
-                  <Button onClick={() => router.push("/browse")} className="flex-1">
-                    Browse More Gigs
-                  </Button>
-                  <Button onClick={() => router.push("/my-orders")} variant="outline" className="flex-1">
-                    My Orders
-                  </Button>
+                <div>
+                  <div className="text-xs text-muted-foreground mb-1">Work Status</div>
+                  <Badge variant={order.isCompleted ? "default" : "secondary"}>
+                    {order.isCompleted ? "Completed" : "In Progress"}
+                  </Badge>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground mb-1">Payment Release</div>
+                  <Badge variant={order.paymentReleased ? "default" : "outline"}>
+                    {order.paymentReleased ? "Released" : "Held in Escrow"}
+                  </Badge>
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span>Order Amount:</span>
+                  <span className="font-semibold">{order.amount} HBAR</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Created:</span>
+                  <span>{order.createdAt.toLocaleDateString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Client:</span>
+                  <span className="font-mono text-xs">
+                    {order.client.slice(0, 6)}...{order.client.slice(-4)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Provider:</span>
+                  <span className="font-mono text-xs">
+                    {order.provider.slice(0, 6)}...{order.provider.slice(-4)}
+                  </span>
                 </div>
               </div>
             </CardContent>
           </Card>
+
+          {/* Deliverable Section - Show when order is completed */}
+          {order.isCompleted && order.deliverable && (
+            <Card className="mb-6">
+              <CardHeader>
+                <CardTitle>Deliverable</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="bg-muted p-4 rounded-lg">
+                  <p className="whitespace-pre-wrap break-words">{order.deliverable}</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Release Payment Section - Show to client when order is completed but payment not released */}
+          {isClient && order.isCompleted && !order.paymentReleased && (
+            <Card className="mb-6 border-green-200 dark:border-green-900">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-green-700 dark:text-green-400">
+                  <CheckCircle className="h-5 w-5" />
+                  Work Completed - Review & Release Payment
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  The provider has completed the work. Please review the deliverable above and release the payment if you're satisfied.
+                </p>
+
+                <div className="bg-yellow-50 dark:bg-yellow-950 p-4 rounded-lg">
+                  <p className="text-sm font-medium mb-2">⚠️ Important:</p>
+                  <ul className="text-sm space-y-1 list-disc list-inside text-muted-foreground">
+                    <li>This will release {order.amount} HBAR from escrow to the provider</li>
+                    <li>A platform fee will be deducted automatically</li>
+                    <li>This action cannot be undone</li>
+                  </ul>
+                </div>
+
+                <Button
+                  onClick={handleReleasePayment}
+                  disabled={isReleasingPayment}
+                  className="w-full"
+                  size="lg"
+                >
+                  {isReleasingPayment ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Releasing Payment...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                      Accept & Release Payment
+                    </>
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Provider view - waiting for client approval */}
+          {isProvider && order.isCompleted && !order.paymentReleased && (
+            <Card className="mb-6">
+              <CardContent className="pt-6">
+                <div className="text-center">
+                  <Clock className="h-12 w-12 text-yellow-500 mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold mb-2">Awaiting Client Approval</h3>
+                  <p className="text-muted-foreground">
+                    The client is reviewing your work. Payment will be released once they approve.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Payment Released - Success message */}
+          {order.paymentReleased && (
+            <Card className="mb-6 border-green-200 dark:border-green-900">
+              <CardContent className="pt-6">
+                <div className="text-center">
+                  <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-4" />
+                  <h3 className="text-xl font-bold mb-2">Order Complete!</h3>
+                  <p className="text-muted-foreground mb-4">
+                    Payment has been released to the provider.
+                  </p>
+                  <div className="flex gap-2 justify-center">
+                    <Button onClick={() => router.push("/browse")} variant="outline">
+                      Browse More Gigs
+                    </Button>
+                    <Button onClick={() => router.push("/my-orders")}>
+                      My Orders
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* In Progress - Waiting for provider to complete */}
+          {!order.isCompleted && (
+            <Card className="mb-6">
+              <CardContent className="pt-6">
+                <div className="text-center">
+                  <Loader2 className="h-12 w-12 text-blue-500 mx-auto mb-4 animate-spin" />
+                  <h3 className="text-lg font-semibold mb-2">Work in Progress</h3>
+                  <p className="text-muted-foreground">
+                    {isProvider
+                      ? "Complete the work and submit the deliverable to receive payment."
+                      : "The provider is working on your order. You'll be notified when it's completed."}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </main>
         <Footer />
       </div>

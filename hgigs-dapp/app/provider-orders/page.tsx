@@ -157,18 +157,26 @@ export default function ProviderOrdersPage() {
       
     } catch (error: any) {
       console.error("Error completing order:", error)
-      
+
       let errorMessage = "Failed to complete order"
-      if (error.code === "ACTION_REJECTED" || error.code === 4001) {
+      if (error.code === "ACTION_REJECTED" || error.code === 4001 || error.message?.includes("user rejected")) {
         errorMessage = "Transaction was rejected by user"
       } else if (error.message?.includes("Deliverable cannot be empty")) {
         errorMessage = "Please provide a deliverable description"
       } else if (error.message?.includes("Order must be paid")) {
         errorMessage = "Order must be paid before it can be completed"
+      } else if (error.reason) {
+        // Ethers v6 provides clean revert reason
+        errorMessage = error.reason
+      } else if (error.revert?.args?.[0]) {
+        // Extract from revert args
+        errorMessage = error.revert.args[0]
       } else if (error.message) {
-        errorMessage = error.message
+        // Try to extract message from quotes if it's a revert string
+        const match = error.message.match(/\"([^\"]+)\"/)
+        errorMessage = match ? match[1] : error.message
       }
-      
+
       toast({
         title: "Error",
         description: errorMessage,
