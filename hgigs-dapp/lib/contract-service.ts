@@ -5,7 +5,7 @@ import { getHederaProvider, getHederaSigner, CONTRACT_ADDRESS } from "./hedera-c
 const CONTRACT_ABI = [
   // Core gig functions
   "function createGig(string memory _title, string memory _description, uint256 _price, address _token)",
-  "function getGig(uint256 _gigId) view returns (tuple(uint256 id, address provider, string title, string description, uint256 price, bool isActive, bool isCompleted, address token))",
+  "function getGig(uint256 _gigId) view returns (tuple(uint256 id, address provider, string title, string description, uint256 price, bool isActive, bool isCompleted, address token, uint256 createdAt))",
   "function updateGig(uint256 _gigId, string memory _title, string memory _description, uint256 _price, address _token)",
   "function deactivateGig(uint256 _gigId)",
   
@@ -21,7 +21,7 @@ const CONTRACT_ABI = [
   // Query functions
   "function getProviderGigs(address _provider) view returns (uint256[])",
   "function getClientOrders(address _client) view returns (uint256[])",
-  "function getAllActiveGigs() view returns (tuple(uint256 id, address provider, string title, string description, uint256 price, bool isActive, bool isCompleted, address token)[])",
+  "function getAllActiveGigs() view returns (tuple(uint256 id, address provider, string title, string description, uint256 price, bool isActive, bool isCompleted, address token, uint256 createdAt)[])",
   
   // Admin functions
   "function setPlatformFee(uint256 _feePercent)",
@@ -222,7 +222,7 @@ export class ContractService {
         requirements: requirements,
         tags: tags,
         active: gig.isActive,
-        createdAt: new Date(), // Contract doesn't store creation timestamp
+        createdAt: new Date(Number(gig.createdAt) * 1000),
         network: network,
         paymentToken: paymentToken
       }
@@ -541,14 +541,40 @@ export class ContractService {
   // Get orders for a specific gig by filtering events
   async getGigOrders(gigId: number): Promise<any[]> {
     if (!this.contract) return []
-    
+
     try {
-      // Get OrderCreated events for this specific gig
+      // Hedera has a 7-day maximum duration for eth_getLogs queries
+      const SECONDS_PER_BLOCK = 3 // Hedera's approximate block time
+      const SEVEN_DAYS_SECONDS = 7 * 24 * 60 * 60 // 604,800 seconds
+      const BLOCKS_PER_CHUNK = Math.floor(SEVEN_DAYS_SECONDS / SECONDS_PER_BLOCK) // ~201,600 blocks
+      const MAX_DAYS_BACK = 30 // Query last 30 days
+      const MAX_CHUNKS = Math.ceil(MAX_DAYS_BACK / 7) // ~5 chunks for 30 days
+
+      // Get current block number
+      const currentBlock = await this.provider.getBlockNumber()
+
+      // Get OrderCreated events for this specific gig in chunks
       const filter = this.contract.filters.OrderCreated(null, gigId)
-      const events = await this.contract.queryFilter(filter)
-      
+      const allEvents: any[] = []
+
+      for (let i = 0; i < MAX_CHUNKS; i++) {
+        const toBlock = i === 0 ? currentBlock : currentBlock - (i * BLOCKS_PER_CHUNK)
+        const fromBlock = Math.max(0, toBlock - BLOCKS_PER_CHUNK + 1)
+
+        try {
+          const events = await this.contract.queryFilter(filter, fromBlock, toBlock)
+          allEvents.push(...events)
+
+          // If we've reached block 0, no need to continue
+          if (fromBlock === 0) break
+        } catch (error) {
+          console.error(`Error querying blocks ${fromBlock} to ${toBlock}:`, error)
+          // Continue with next chunk even if one fails
+        }
+      }
+
       const orders = await Promise.all(
-        events.map(async (event) => {
+        allEvents.map(async (event) => {
           try {
             const orderId = Number(event.args?.[0])
             return await this.getOrder(orderId)
@@ -558,7 +584,7 @@ export class ContractService {
           }
         })
       )
-      
+
       return orders.filter(order => order !== null)
     } catch (error) {
       console.error("Error getting gig orders:", error)

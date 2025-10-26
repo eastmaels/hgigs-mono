@@ -53,8 +53,16 @@ export default function BrowsePage() {
           }
         })
       )
-      
-      const validGigs = gigsData.filter((gig): gig is Gig => gig !== null)
+
+      // Filter out gigs older than 30 days to avoid RPC query errors
+      const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000
+      const thirtyDaysAgo = new Date(Date.now() - THIRTY_DAYS_MS)
+
+      const validGigs = gigsData.filter((gig): gig is Gig => {
+        if (gig === null) return false
+        // Only show gigs created within the last 30 days
+        return gig.createdAt >= thirtyDaysAgo
+      })
       setGigs(validGigs)
 
       // Load order counts for each gig

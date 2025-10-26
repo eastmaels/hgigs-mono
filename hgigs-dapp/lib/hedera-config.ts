@@ -12,7 +12,7 @@ export const HEDERA_TESTNET_CONFIG = {
   blockExplorer: "https://hashscan.io/testnet",
 }
 
-export const CONTRACT_ADDRESS = "0x47fe84b56840a20BF579300207EBBaBc615AE1e9"
+export const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || "0xA96a94436e8A753c2f16082F0f08afE25ffae393"
 
 export function getHederaProvider(): ethers.JsonRpcProvider {
   return new ethers.JsonRpcProvider(HEDERA_TESTNET_CONFIG.rpcUrl)

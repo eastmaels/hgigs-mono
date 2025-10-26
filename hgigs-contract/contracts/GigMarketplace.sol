@@ -22,6 +22,7 @@ contract GigMarketplace is
         bool isActive;
         bool isCompleted;
         address token;
+        uint256 createdAt;  // Added as last field for upgrade compatibility
     }
 
     struct Order {
@@ -93,7 +94,8 @@ contract GigMarketplace is
             price: _price,
             token: _token,
             isActive: true,
-            isCompleted: false
+            isCompleted: false,
+            createdAt: block.timestamp
         });
 
         providerGigs[msg.sender].push(nextGigId);
