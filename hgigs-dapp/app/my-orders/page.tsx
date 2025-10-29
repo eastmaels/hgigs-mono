@@ -30,7 +30,7 @@ interface OrderWithGig extends Order {
 
 // Helper function to get order status for display
 function getOrderStatus(order: Order) {
-  const { isPaid, isCompleted, paymentReleased } = order
+  const { isPaid, isCompleted, paymentReleased, paymentApproved } = order
 
   if (!isPaid && !isCompleted && !paymentReleased) {
     return { text: "Pending Payment", variant: "destructive" as const, color: "text-red-600" }
@@ -40,7 +40,12 @@ function getOrderStatus(order: Order) {
     return { text: "Work in Progress", variant: "default" as const, color: "text-blue-600" }
   }
 
-  if (isPaid && isCompleted && !paymentReleased) {
+  // New status: Payment approved for claim
+  if (isPaid && isCompleted && !paymentReleased && paymentApproved) {
+    return { text: "Approved for Claim", variant: "default" as const, color: "text-green-600" }
+  }
+
+  if (isPaid && isCompleted && !paymentReleased && !paymentApproved) {
     return { text: "Awaiting Release", variant: "outline" as const, color: "text-orange-600" }
   }
 

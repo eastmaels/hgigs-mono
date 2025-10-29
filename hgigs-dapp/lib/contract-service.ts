@@ -15,7 +15,9 @@ const CONTRACT_ABI = [
   "function payOrderWithToken(uint256 _orderId)",  // Token payment function
   "function completeOrder(uint256 _orderId, string memory _deliverable)",
   "function releasePayment(uint256 _orderId)",
-  "function getOrder(uint256 _orderId) view returns (tuple(uint256 id, uint256 gigId, address client, address provider, uint256 amount, bool isCompleted, bool isPaid, bool paymentReleased, uint256 createdAt, uint256 paidAmount, string deliverable))",  // Added paidAmount and deliverable fields
+  "function approvePayment(uint256 _orderId)",  // Pull payment: approve for claim
+  "function claimPayment(uint256 _orderId)",  // Pull payment: provider claims
+  "function getOrder(uint256 _orderId) view returns (tuple(uint256 id, uint256 gigId, address client, address provider, uint256 amount, bool isCompleted, bool isPaid, bool paymentReleased, uint256 createdAt, uint256 paidAmount, string deliverable, bool paymentApproved))",  // Added paidAmount, deliverable, and paymentApproved fields
   "function getOrderDeliverable(uint256 _orderId) view returns (string memory)",
   
   // Query functions
@@ -43,6 +45,7 @@ const CONTRACT_ABI = [
   "event OrderPaid(uint256 indexed orderId, address indexed client, uint256 amount)",  // New event
   "event OrderCompleted(uint256 indexed orderId)",
   "event PaymentReleased(uint256 indexed orderId, address indexed provider, uint256 amount)",
+  "event PaymentApproved(uint256 indexed orderId, uint256 amount)",
 
   // Debug functions
   "function debugReleasePayment(uint256 _orderId) view returns (uint256 contractBalanceTinybars, uint256 contractBalanceWei, uint256 orderPaidAmount, uint256 platformFeeAmount, uint256 providerAmount, uint256 platformFeePercent_, bool hasEnoughBalance)"
@@ -368,6 +371,22 @@ export class ContractService {
     return await contractWithSigner.releasePayment(orderId)
   }
 
+  async approvePayment(orderId: number): Promise<ethers.TransactionResponse> {
+    const contractWithSigner = await this.getContractWithSigner()
+
+    console.log(`[CONTRACT SERVICE] ApprovePayment for order ${orderId}`)
+
+    return await contractWithSigner.approvePayment(orderId)
+  }
+
+  async claimPayment(orderId: number): Promise<ethers.TransactionResponse> {
+    const contractWithSigner = await this.getContractWithSigner()
+
+    console.log(`[CONTRACT SERVICE] ClaimPayment for order ${orderId}`)
+
+    return await contractWithSigner.claimPayment(orderId)
+  }
+
   async debugReleasePayment(orderId: number): Promise<{
     contractBalanceTinybars: string
     contractBalanceWei: string
@@ -449,7 +468,8 @@ export class ContractService {
         paymentReleased: order.paymentReleased,
         createdAt: new Date(Number(order.createdAt) * 1000),
         paidAmount: ethers.formatEther(order.paidAmount),
-        deliverable: order.deliverable
+        deliverable: order.deliverable,
+        paymentApproved: order.paymentApproved
       }
     } catch (error) {
       console.error("Error getting order:", error)

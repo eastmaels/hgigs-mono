@@ -48,6 +48,8 @@ export default function PaymentPage() {
   const [isCheckingStatus, setIsCheckingStatus] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isReleasingPayment, setIsReleasingPayment] = useState(false)
+  const [isApprovingPayment, setIsApprovingPayment] = useState(false)
+  const [isClaimingPayment, setIsClaimingPayment] = useState(false)
   const [paymentHash, setPaymentHash] = useState<string>("")
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
   const [currentUserAddress, setCurrentUserAddress] = useState<string | null>(null)
@@ -89,7 +91,8 @@ export default function PaymentPage() {
             currentState: {
               isPaid: order.isPaid,
               isCompleted: order.isCompleted,
-              paymentReleased: order.paymentReleased
+              paymentReleased: order.paymentReleased,
+              paymentApproved: order.paymentApproved
             },
             timestamp: new Date().toISOString()
           })
@@ -100,20 +103,23 @@ export default function PaymentPage() {
             newState: {
               isPaid: updatedOrder.isPaid,
               isCompleted: updatedOrder.isCompleted,
-              paymentReleased: updatedOrder.paymentReleased
+              paymentReleased: updatedOrder.paymentReleased,
+              paymentApproved: updatedOrder.paymentApproved
             },
             hasChanged: (
-              updatedOrder.isPaid !== order.isPaid || 
-              updatedOrder.isCompleted !== order.isCompleted || 
-              updatedOrder.paymentReleased !== order.paymentReleased
+              updatedOrder.isPaid !== order.isPaid ||
+              updatedOrder.isCompleted !== order.isCompleted ||
+              updatedOrder.paymentReleased !== order.paymentReleased ||
+              updatedOrder.paymentApproved !== order.paymentApproved
             ),
             timestamp: new Date().toISOString()
           })
-          
+
           // Check if any status changed
-          if (updatedOrder.isPaid !== order.isPaid || 
-              updatedOrder.isCompleted !== order.isCompleted || 
-              updatedOrder.paymentReleased !== order.paymentReleased) {
+          if (updatedOrder.isPaid !== order.isPaid ||
+              updatedOrder.isCompleted !== order.isCompleted ||
+              updatedOrder.paymentReleased !== order.paymentReleased ||
+              updatedOrder.paymentApproved !== order.paymentApproved) {
             
             console.log(`[POLLING] ✅ STATUS CHANGED! Updating UI`, {
               changes: {
@@ -141,6 +147,13 @@ export default function PaymentPage() {
               })
             }
             
+            if (updatedOrder.paymentApproved && !order.paymentApproved) {
+              toast({
+                title: "Payment Approved!",
+                description: "Payment has been approved for provider to claim.",
+              })
+            }
+
             if (updatedOrder.paymentReleased && !order.paymentReleased) {
               toast({
                 title: "Payment Released!",
@@ -676,6 +689,259 @@ export default function PaymentPage() {
     }
   }
 
+  const handleApprovePayment = async () => {
+    if (!order) {
+      toast({
+        title: "Cannot Approve Payment",
+        description: "Order data is not available. Please refresh the page and try again.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      setIsApprovingPayment(true)
+      console.log(`[APPROVE PAYMENT] Starting payment approval for Order ${orderId}`)
+
+      // Get fresh order data from blockchain
+      const freshOrder = await contractService.getOrder(parseInt(orderId))
+
+      // Check if MetaMask is connected
+      if (!currentUserAddress) {
+        toast({
+          title: "Wallet Not Connected",
+          description: "Please connect your MetaMask wallet to continue.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Check if user is the client
+      if (freshOrder.client.toLowerCase() !== currentUserAddress.toLowerCase()) {
+        toast({
+          title: "Not Authorized",
+          description: `Only the client can approve payment.`,
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Check if order is paid
+      if (!freshOrder.isPaid) {
+        toast({
+          title: "Order Not Paid",
+          description: "The order must be paid before you can approve payment.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Check if order is completed
+      if (!freshOrder.isCompleted) {
+        toast({
+          title: "Order Not Completed",
+          description: "The provider must complete the order before you can approve payment.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Check if payment is already released
+      if (freshOrder.paymentReleased) {
+        toast({
+          title: "Already Released",
+          description: "Payment has already been released for this order.",
+          variant: "destructive",
+        })
+        await loadOrderData(true)
+        return
+      }
+
+      // Check if payment is already approved
+      if (freshOrder.paymentApproved) {
+        toast({
+          title: "Already Approved",
+          description: "Payment has already been approved for this order.",
+          variant: "destructive",
+        })
+        await loadOrderData(true)
+        return
+      }
+
+      toast({
+        title: "Approving Payment",
+        description: "Please confirm the transaction in MetaMask...",
+      })
+
+      console.log(`[APPROVE PAYMENT] Calling contractService.approvePayment(${orderId})`)
+
+      const tx = await contractService.approvePayment(parseInt(orderId))
+      console.log(`[APPROVE PAYMENT] Transaction submitted:`, tx.hash)
+
+      toast({
+        title: "Transaction Submitted",
+        description: `Transaction hash: ${tx.hash.slice(0, 10)}...`,
+      })
+
+      // Wait for transaction confirmation
+      console.log(`[APPROVE PAYMENT] Waiting for transaction confirmation...`)
+      const receipt = await tx.wait()
+
+      if (receipt?.status === 1) {
+        console.log(`[APPROVE PAYMENT] ✅ Payment approved successfully!`, receipt.hash)
+
+        toast({
+          title: "Payment Approved!",
+          description: "The provider can now claim the payment.",
+        })
+
+        // Reload order data to show updated status
+        await loadOrderData(true)
+      } else {
+        throw new Error("Transaction failed")
+      }
+    } catch (error: any) {
+      console.error("[APPROVE PAYMENT] Error:", error)
+
+      let errorMessage = "Failed to approve payment. Please try again."
+
+      if (error.code === "ACTION_REJECTED" || error.message?.includes("user rejected")) {
+        errorMessage = "Transaction was cancelled."
+      } else if (error.message?.includes("Only order client")) {
+        errorMessage = "You are not the client for this order."
+      } else if (error.message?.includes("Payment already approved")) {
+        errorMessage = "Payment has already been approved."
+      } else if (error.message) {
+        errorMessage = error.message
+      }
+
+      toast({
+        title: "Approval Failed",
+        description: errorMessage,
+        variant: "destructive",
+      })
+    } finally {
+      setIsApprovingPayment(false)
+    }
+  }
+
+  const handleClaimPayment = async () => {
+    if (!order) {
+      toast({
+        title: "Cannot Claim Payment",
+        description: "Order data is not available. Please refresh the page and try again.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      setIsClaimingPayment(true)
+      console.log(`[CLAIM PAYMENT] Starting payment claim for Order ${orderId}`)
+
+      // Get fresh order data from blockchain
+      const freshOrder = await contractService.getOrder(parseInt(orderId))
+
+      // Check if MetaMask is connected
+      if (!currentUserAddress) {
+        toast({
+          title: "Wallet Not Connected",
+          description: "Please connect your MetaMask wallet to continue.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Check if user is the provider
+      if (freshOrder.provider.toLowerCase() !== currentUserAddress.toLowerCase()) {
+        toast({
+          title: "Not Authorized",
+          description: `Only the provider can claim payment.`,
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Check if payment is approved
+      if (!freshOrder.paymentApproved) {
+        toast({
+          title: "Payment Not Approved",
+          description: "The client must approve the payment before you can claim it.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Check if payment is already released
+      if (freshOrder.paymentReleased) {
+        toast({
+          title: "Already Claimed",
+          description: "Payment has already been claimed for this order.",
+          variant: "destructive",
+        })
+        await loadOrderData(true)
+        return
+      }
+
+      toast({
+        title: "Claiming Payment",
+        description: "Please confirm the transaction in MetaMask...",
+      })
+
+      console.log(`[CLAIM PAYMENT] Calling contractService.claimPayment(${orderId})`)
+
+      const tx = await contractService.claimPayment(parseInt(orderId))
+      console.log(`[CLAIM PAYMENT] Transaction submitted:`, tx.hash)
+
+      toast({
+        title: "Transaction Submitted",
+        description: `Transaction hash: ${tx.hash.slice(0, 10)}...`,
+      })
+
+      // Wait for transaction confirmation
+      console.log(`[CLAIM PAYMENT] Waiting for transaction confirmation...`)
+      const receipt = await tx.wait()
+
+      if (receipt?.status === 1) {
+        console.log(`[CLAIM PAYMENT] ✅ Payment claimed successfully!`, receipt.hash)
+
+        toast({
+          title: "Payment Claimed!",
+          description: "The payment has been transferred to your wallet.",
+        })
+
+        // Reload order data to show updated status
+        await loadOrderData(true)
+      } else {
+        throw new Error("Transaction failed")
+      }
+    } catch (error: any) {
+      console.error("[CLAIM PAYMENT] Error:", error)
+
+      let errorMessage = "Failed to claim payment. Please try again."
+
+      if (error.code === "ACTION_REJECTED" || error.message?.includes("user rejected")) {
+        errorMessage = "Transaction was cancelled."
+      } else if (error.message?.includes("Only order provider")) {
+        errorMessage = "You are not the provider for this order."
+      } else if (error.message?.includes("Payment not approved")) {
+        errorMessage = "Payment has not been approved yet."
+      } else if (error.message?.includes("Payment already released")) {
+        errorMessage = "Payment has already been claimed."
+      } else if (error.message) {
+        errorMessage = error.message
+      }
+
+      toast({
+        title: "Claim Failed",
+        description: errorMessage,
+        variant: "destructive",
+      })
+    } finally {
+      setIsClaimingPayment(false)
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background">
@@ -803,7 +1069,7 @@ export default function PaymentPage() {
           )}
 
           {/* Release Payment Section - Show to client when order is completed but payment not released */}
-          {isClient && order.isCompleted && !order.paymentReleased && (
+          {isClient && order.isCompleted && !order.paymentReleased && !order.paymentApproved && (
             <Card className="mb-6 border-green-200 dark:border-green-900">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-green-700 dark:text-green-400">
@@ -813,7 +1079,7 @@ export default function PaymentPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  The provider has completed the work. Please review the deliverable above and release the payment if you're satisfied.
+                  The provider has completed the work. Please review the deliverable above and choose how to release the payment.
                 </p>
 
                 <div className="bg-yellow-50 dark:bg-yellow-950 p-4 rounded-lg">
@@ -821,43 +1087,181 @@ export default function PaymentPage() {
                   <ul className="text-sm space-y-1 list-disc list-inside text-muted-foreground">
                     <li>This will release {order.amount} HBAR from escrow to the provider</li>
                     <li>A platform fee will be deducted automatically</li>
-                    <li>This action cannot be undone</li>
+                    <li>These actions cannot be undone</li>
                   </ul>
                 </div>
 
-                <Button
-                  onClick={handleReleasePayment}
-                  disabled={isReleasingPayment}
-                  className="w-full"
-                  size="lg"
-                >
-                  {isReleasingPayment ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Releasing Payment...
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle className="h-4 w-4 mr-2" />
-                      Accept & Release Payment
-                    </>
-                  )}
-                </Button>
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-sm font-medium mb-2">Option 1: Push Payment (Immediate)</p>
+                    <Button
+                      onClick={handleReleasePayment}
+                      disabled={isReleasingPayment || isApprovingPayment}
+                      className="w-full"
+                      size="lg"
+                      variant="default"
+                    >
+                      {isReleasingPayment ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Releasing Payment...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle className="h-4 w-4 mr-2" />
+                          Release Payment Now (Push)
+                        </>
+                      )}
+                    </Button>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Immediately transfer funds from escrow to provider
+                    </p>
+                  </div>
+
+                  <div className="relative">
+                    <div className="absolute inset-0 flex items-center">
+                      <span className="w-full border-t" />
+                    </div>
+                    <div className="relative flex justify-center text-xs uppercase">
+                      <span className="bg-background px-2 text-muted-foreground">Or</span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="text-sm font-medium mb-2">Option 2: Approve for Claim (Pull)</p>
+                    <Button
+                      onClick={handleApprovePayment}
+                      disabled={isApprovingPayment || isReleasingPayment}
+                      className="w-full"
+                      size="lg"
+                      variant="outline"
+                    >
+                      {isApprovingPayment ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Approving Payment...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle className="h-4 w-4 mr-2" />
+                          Approve for Provider to Claim (Pull)
+                        </>
+                      )}
+                    </Button>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Let the provider withdraw funds themselves at their convenience
+                    </p>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           )}
 
-          {/* Provider view - waiting for client approval */}
-          {isProvider && order.isCompleted && !order.paymentReleased && (
+          {/* Payment Approved - Waiting for Provider to Claim */}
+          {isClient && order.isCompleted && !order.paymentReleased && order.paymentApproved && (
+            <Card className="mb-6 border-blue-200 dark:border-blue-900">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-blue-700 dark:text-blue-400">
+                  <CheckCircle className="h-5 w-5" />
+                  Payment Approved - Awaiting Provider Claim
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  You have approved the payment for the provider to claim. The provider can now withdraw the funds at their convenience.
+                </p>
+                <div className="bg-blue-50 dark:bg-blue-950 p-4 rounded-lg">
+                  <p className="text-sm">
+                    <Clock className="h-4 w-4 inline mr-2" />
+                    The provider will claim the payment when ready. You'll be notified once they do.
+                  </p>
+                </div>
+
+                {/* Option to push payment instead if provider hasn't claimed yet */}
+                <div className="pt-2 border-t">
+                  <p className="text-sm font-medium mb-2">Changed your mind?</p>
+                  <Button
+                    onClick={handleReleasePayment}
+                    disabled={isReleasingPayment}
+                    className="w-full"
+                    size="sm"
+                    variant="outline"
+                  >
+                    {isReleasingPayment ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Releasing Payment...
+                      </>
+                    ) : (
+                      <>
+                        Release Payment Now Instead
+                      </>
+                    )}
+                  </Button>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    You can still push the payment immediately if needed
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Provider view - payment not approved yet */}
+          {isProvider && order.isCompleted && !order.paymentReleased && !order.paymentApproved && (
             <Card className="mb-6">
               <CardContent className="pt-6">
                 <div className="text-center">
                   <Clock className="h-12 w-12 text-yellow-500 mx-auto mb-4" />
                   <h3 className="text-lg font-semibold mb-2">Awaiting Client Approval</h3>
                   <p className="text-muted-foreground">
-                    The client is reviewing your work. Payment will be released once they approve.
+                    The client is reviewing your work. They can either release payment directly or approve it for you to claim.
                   </p>
                 </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Provider view - payment approved, ready to claim */}
+          {isProvider && order.isCompleted && !order.paymentReleased && order.paymentApproved && (
+            <Card className="mb-6 border-green-200 dark:border-green-900">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-green-700 dark:text-green-400">
+                  <CheckCircle className="h-5 w-5" />
+                  Payment Approved - Ready to Claim
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  The client has approved the payment! You can now claim your funds.
+                </p>
+
+                <div className="bg-green-50 dark:bg-green-950 p-4 rounded-lg">
+                  <p className="text-sm font-medium mb-2">Payment Details:</p>
+                  <ul className="text-sm space-y-1 list-disc list-inside text-muted-foreground">
+                    <li>Amount: {order.amount} HBAR</li>
+                    <li>Platform fee will be deducted automatically</li>
+                    <li>Claim the payment when you're ready</li>
+                  </ul>
+                </div>
+
+                <Button
+                  onClick={handleClaimPayment}
+                  disabled={isClaimingPayment}
+                  className="w-full"
+                  size="lg"
+                >
+                  {isClaimingPayment ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Claiming Payment...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                      Claim Payment
+                    </>
+                  )}
+                </Button>
               </CardContent>
             </Card>
           )}

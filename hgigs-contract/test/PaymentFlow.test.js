@@ -232,4 +232,65 @@ describe("Payment Status Change Test", function () {
             console.log("✓ Multiple orders handled independently");
         });
     });
+
+    describe("Pull Payment Flow", function () {
+        it("Should demonstrate complete pull payment lifecycle", async function () {
+            console.log("\n=== PULL PAYMENT LIFECYCLE TEST ===");
+
+            // Create gig and order
+            await gigMarketplace.connect(provider).createGig(
+                "Pull Payment Test",
+                "Testing pull payment flow",
+                gigPrice,
+                ethers.ZeroAddress
+            );
+
+            const orderTx = await gigMarketplace.connect(client).orderGig(1);
+            await orderTx.wait();
+
+            orderId = 1;
+
+            console.log("1. Order created (isPaid: false, paymentApproved: false)");
+            let order = await gigMarketplace.getOrder(orderId);
+            console.log(`   isPaid: ${order.isPaid}, paymentApproved: ${order.paymentApproved}, paymentReleased: ${order.paymentReleased}`);
+            expect(order.isPaid).to.be.false;
+            expect(order.paymentApproved).to.be.false;
+
+            console.log("\n2. Client pays order (isPaid: true, funds in escrow)");
+            await gigMarketplace.connect(client).payOrder(orderId, { value: gigPrice });
+            order = await gigMarketplace.getOrder(orderId);
+            console.log(`   isPaid: ${order.isPaid}, paymentReleased: ${order.paymentReleased}`);
+            expect(order.isPaid).to.be.true;
+            expect(order.paymentReleased).to.be.false;
+
+            console.log("\n3. Provider completes work");
+            await gigMarketplace.connect(provider).completeOrder(orderId, "Deliverable content");
+            order = await gigMarketplace.getOrder(orderId);
+            console.log(`   isCompleted: ${order.isCompleted}`);
+            expect(order.isCompleted).to.be.true;
+
+            console.log("\n4. Client approves payment for claim (paymentApproved: true)");
+            await gigMarketplace.connect(client).approvePayment(orderId);
+            order = await gigMarketplace.getOrder(orderId);
+            console.log(`   paymentApproved: ${order.paymentApproved}, paymentReleased: ${order.paymentReleased}`);
+            expect(order.paymentApproved).to.be.true;
+            expect(order.paymentReleased).to.be.false;
+
+            console.log("\n5. Provider claims payment (paymentReleased: true)");
+            const providerBalanceBefore = await ethers.provider.getBalance(provider.address);
+
+            await gigMarketplace.connect(provider).claimPayment(orderId);
+
+            order = await gigMarketplace.getOrder(orderId);
+            const providerBalanceAfter = await ethers.provider.getBalance(provider.address);
+
+            console.log(`   paymentReleased: ${order.paymentReleased}`);
+            console.log(`   Provider balance increased: ${ethers.formatEther(providerBalanceAfter - providerBalanceBefore)} ETH (approximately, minus gas)`);
+
+            expect(order.paymentReleased).to.be.true;
+            expect(providerBalanceAfter).to.be.gt(providerBalanceBefore);
+
+            console.log("\n✓ PULL PAYMENT COMPLETE: pending → paid → completed → approved → claimed");
+        });
+    });
 });
