@@ -37,6 +37,7 @@ contract GigMarketplace is
         uint256 createdAt;
         uint256 paidAmount;
         string deliverable;
+        bool paymentApproved;  // Flag for pull payment mechanism
     }
 
     mapping(uint256 => Gig) public gigs;
@@ -55,6 +56,7 @@ contract GigMarketplace is
     event OrderPaid(uint256 indexed orderId, address indexed client, uint256 amount);
     event OrderCompleted(uint256 indexed orderId);
     event PaymentReleased(uint256 indexed orderId, address indexed provider, uint256 amount);
+    event PaymentApproved(uint256 indexed orderId, uint256 amount);
 
 
     modifier onlyProvider(uint256 _gigId) {
@@ -145,7 +147,8 @@ contract GigMarketplace is
             paymentReleased: false,
             createdAt: block.timestamp,
             paidAmount: 0,
-            deliverable: ""
+            deliverable: "",
+            paymentApproved: false
         });
 
         clientOrders[msg.sender].push(nextOrderId);
@@ -204,6 +207,68 @@ contract GigMarketplace is
     function releasePayment(uint256 _orderId) external onlyClient(_orderId) nonReentrant {
         require(orders[_orderId].isCompleted, "Order is not completed");
         require(orders[_orderId].isPaid, "Order is not paid yet");
+        require(!orders[_orderId].paymentReleased, "Payment already released");
+
+        // Use the actual paid amount, not the order amount
+        uint256 paidAmount = orders[_orderId].paidAmount;
+        uint256 platformFee = (paidAmount * platformFeePercent) / 100;
+        uint256 providerAmount = paidAmount - platformFee;
+
+        uint256 gigId = orders[_orderId].gigId;
+        address tokenAddress = gigs[gigId].token;
+
+        if (tokenAddress == address(0)) {
+            // Native token (HBAR) payment
+            // Note: On Hedera, address(this).balance returns tinybars (8 decimals)
+            // but paidAmount is stored in wei (18 decimals), so we need to convert
+            // Conversion: 1 tinybar = 10^10 wei
+            uint256 balanceInWei = address(this).balance * 10**10;
+            require(balanceInWei >= paidAmount, "Insufficient contract balance");
+
+            // Convert amounts from wei back to tinybars for actual transfer
+            uint256 providerAmountInTinybars = providerAmount / 10**10;
+            uint256 platformFeeInTinybars = platformFee / 10**10;
+
+            // Update state before transfers (checks-effects-interactions pattern)
+            orders[_orderId].paymentReleased = true;
+
+            // Transfer to provider using .call for better error handling
+            (bool providerSuccess, ) = orders[_orderId].provider.call{value: providerAmountInTinybars}("");
+            require(providerSuccess, "Provider payment failed");
+
+            // Transfer platform fee to owner
+            (bool feeSuccess, ) = payable(owner()).call{value: platformFeeInTinybars}("");
+            require(feeSuccess, "Platform fee payment failed");
+        } else {
+            // ERC20 token payment
+            // Update state before transfers (checks-effects-interactions pattern)
+            orders[_orderId].paymentReleased = true;
+
+            IERC20 token = IERC20(tokenAddress);
+            require(token.transfer(orders[_orderId].provider, providerAmount), "Provider token transfer failed");
+            require(token.transfer(owner(), platformFee), "Platform fee token transfer failed");
+        }
+
+        emit PaymentReleased(_orderId, orders[_orderId].provider, providerAmount);
+    }
+
+    // Pull payment mechanism: Client approves payment for provider to claim
+    function approvePayment(uint256 _orderId) external onlyClient(_orderId) {
+        require(orders[_orderId].isCompleted, "Order is not completed");
+        require(orders[_orderId].isPaid, "Order is not paid yet");
+        require(!orders[_orderId].paymentReleased, "Payment already released");
+        require(!orders[_orderId].paymentApproved, "Payment already approved");
+
+        orders[_orderId].paymentApproved = true;
+        emit PaymentApproved(_orderId, orders[_orderId].paidAmount);
+    }
+
+    // Pull payment mechanism: Provider claims approved payment
+    function claimPayment(uint256 _orderId) external nonReentrant {
+        require(msg.sender == orders[_orderId].provider, "Only order provider can claim payment");
+        require(orders[_orderId].isCompleted, "Order is not completed");
+        require(orders[_orderId].isPaid, "Order is not paid yet");
+        require(orders[_orderId].paymentApproved, "Payment not approved for claim");
         require(!orders[_orderId].paymentReleased, "Payment already released");
 
         // Use the actual paid amount, not the order amount

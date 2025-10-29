@@ -48,14 +48,35 @@ export default function TokenPaymentPage() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [isCheckingStatus, setIsCheckingStatus] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [isReleasingPayment, setIsReleasingPayment] = useState(false)
+  const [isApprovingPayment, setIsApprovingPayment] = useState(false)
+  const [isClaimingPayment, setIsClaimingPayment] = useState(false)
   const [paymentHash, setPaymentHash] = useState<string>("")
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
+  const [currentUserAddress, setCurrentUserAddress] = useState<string | null>(null)
 
   useEffect(() => {
     if (orderId) {
       loadOrderData()
     }
   }, [orderId])
+
+  // Get current user's wallet address
+  useEffect(() => {
+    const getCurrentAddress = async () => {
+      if (typeof window.ethereum !== 'undefined') {
+        try {
+          const accounts = await window.ethereum.request({ method: 'eth_accounts' })
+          if (accounts && accounts.length > 0) {
+            setCurrentUserAddress(accounts[0].toLowerCase())
+          }
+        } catch (error) {
+          console.error("Error getting current address:", error)
+        }
+      }
+    }
+    getCurrentAddress()
+  }, [])
 
   // Periodic status polling - checks every 15 seconds
   useEffect(() => {
@@ -71,43 +92,48 @@ export default function TokenPaymentPage() {
             currentState: {
               isPaid: order.isPaid,
               isCompleted: order.isCompleted,
-              paymentReleased: order.paymentReleased
+              paymentReleased: order.paymentReleased,
+              paymentApproved: order.paymentApproved
             },
             timestamp: new Date().toISOString()
           })
-          
+
           const updatedOrder = await contractService.getOrder(parseInt(orderId))
-          
+
           console.log(`[POLLING] Fetched updated status:`, {
             newState: {
               isPaid: updatedOrder.isPaid,
               isCompleted: updatedOrder.isCompleted,
-              paymentReleased: updatedOrder.paymentReleased
+              paymentReleased: updatedOrder.paymentReleased,
+              paymentApproved: updatedOrder.paymentApproved
             },
             hasChanged: (
-              updatedOrder.isPaid !== order.isPaid || 
-              updatedOrder.isCompleted !== order.isCompleted || 
-              updatedOrder.paymentReleased !== order.paymentReleased
+              updatedOrder.isPaid !== order.isPaid ||
+              updatedOrder.isCompleted !== order.isCompleted ||
+              updatedOrder.paymentReleased !== order.paymentReleased ||
+              updatedOrder.paymentApproved !== order.paymentApproved
             ),
             timestamp: new Date().toISOString()
           })
-          
+
           // Check if any status changed
-          if (updatedOrder.isPaid !== order.isPaid || 
-              updatedOrder.isCompleted !== order.isCompleted || 
-              updatedOrder.paymentReleased !== order.paymentReleased) {
-            
+          if (updatedOrder.isPaid !== order.isPaid ||
+              updatedOrder.isCompleted !== order.isCompleted ||
+              updatedOrder.paymentReleased !== order.paymentReleased ||
+              updatedOrder.paymentApproved !== order.paymentApproved) {
+
             console.log(`[POLLING] ✅ STATUS CHANGED! Updating UI`, {
               changes: {
                 isPaid: { from: order.isPaid, to: updatedOrder.isPaid },
                 isCompleted: { from: order.isCompleted, to: updatedOrder.isCompleted },
-                paymentReleased: { from: order.paymentReleased, to: updatedOrder.paymentReleased }
+                paymentReleased: { from: order.paymentReleased, to: updatedOrder.paymentReleased },
+                paymentApproved: { from: order.paymentApproved, to: updatedOrder.paymentApproved }
               }
             })
-            
+
             setOrder(updatedOrder)
             setLastUpdated(new Date())
-            
+
             // Show appropriate notifications
             if (updatedOrder.isPaid && !order.isPaid) {
               toast({
@@ -115,14 +141,21 @@ export default function TokenPaymentPage() {
                 description: "Your token payment has been confirmed on the blockchain.",
               })
             }
-            
+
             if (updatedOrder.isCompleted && !order.isCompleted) {
               toast({
                 title: "Work Completed!",
                 description: "The provider has marked this order as completed.",
               })
             }
-            
+
+            if (updatedOrder.paymentApproved && !order.paymentApproved) {
+              toast({
+                title: "Payment Approved!",
+                description: "Payment has been approved for provider to claim.",
+              })
+            }
+
             if (updatedOrder.paymentReleased && !order.paymentReleased) {
               toast({
                 title: "Payment Released!",
@@ -401,6 +434,267 @@ export default function TokenPaymentPage() {
       })
     } finally {
       setIsProcessing(false)
+    }
+  }
+
+  const handleReleasePayment = async () => {
+    if (!order) {
+      toast({
+        title: "Cannot Release Payment",
+        description: "Order data is not available. Please refresh the page and try again.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      setIsReleasingPayment(true)
+      console.log(`[RELEASE PAYMENT] Starting payment release for Order ${orderId}`)
+
+      const freshOrder = await contractService.getOrder(parseInt(orderId))
+
+      if (!currentUserAddress) {
+        toast({
+          title: "Wallet Not Connected",
+          description: "Please connect your MetaMask wallet to continue.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      if (freshOrder.client.toLowerCase() !== currentUserAddress.toLowerCase()) {
+        toast({
+          title: "Not Authorized",
+          description: `Only the client can release payment.`,
+          variant: "destructive",
+        })
+        return
+      }
+
+      if (!freshOrder.isPaid || !freshOrder.isCompleted || freshOrder.paymentReleased) {
+        toast({
+          title: "Cannot Release",
+          description: "Order must be paid and completed, and payment must not already be released.",
+          variant: "destructive",
+        })
+        await loadOrderData(true)
+        return
+      }
+
+      toast({
+        title: "Releasing Payment",
+        description: "Please confirm the transaction in MetaMask...",
+      })
+
+      const tx = await contractService.releasePayment(parseInt(orderId))
+
+      toast({
+        title: "Transaction Submitted",
+        description: `Transaction hash: ${tx.hash.slice(0, 10)}...`,
+      })
+
+      const receipt = await tx.wait()
+
+      if (receipt?.status === 1) {
+        toast({
+          title: "Payment Released!",
+          description: "The payment has been released to the provider.",
+        })
+        await loadOrderData(true)
+      } else {
+        throw new Error("Transaction failed")
+      }
+    } catch (error: any) {
+      console.error("[RELEASE PAYMENT] Error:", error)
+
+      let errorMessage = "Failed to release payment. Please try again."
+      if (error.code === "ACTION_REJECTED" || error.message?.includes("user rejected")) {
+        errorMessage = "Transaction was cancelled."
+      } else if (error.message) {
+        errorMessage = error.message
+      }
+
+      toast({
+        title: "Release Failed",
+        description: errorMessage,
+        variant: "destructive",
+      })
+    } finally {
+      setIsReleasingPayment(false)
+    }
+  }
+
+  const handleApprovePayment = async () => {
+    if (!order) {
+      toast({
+        title: "Cannot Approve Payment",
+        description: "Order data is not available. Please refresh the page and try again.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      setIsApprovingPayment(true)
+      console.log(`[APPROVE PAYMENT] Starting payment approval for Order ${orderId}`)
+
+      const freshOrder = await contractService.getOrder(parseInt(orderId))
+
+      if (!currentUserAddress) {
+        toast({
+          title: "Wallet Not Connected",
+          description: "Please connect your MetaMask wallet to continue.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      if (freshOrder.client.toLowerCase() !== currentUserAddress.toLowerCase()) {
+        toast({
+          title: "Not Authorized",
+          description: `Only the client can approve payment.`,
+          variant: "destructive",
+        })
+        return
+      }
+
+      if (!freshOrder.isPaid || !freshOrder.isCompleted || freshOrder.paymentReleased || freshOrder.paymentApproved) {
+        toast({
+          title: "Cannot Approve",
+          description: "Order must be paid and completed, and payment must not already be released or approved.",
+          variant: "destructive",
+        })
+        await loadOrderData(true)
+        return
+      }
+
+      toast({
+        title: "Approving Payment",
+        description: "Please confirm the transaction in MetaMask...",
+      })
+
+      const tx = await contractService.approvePayment(parseInt(orderId))
+
+      toast({
+        title: "Transaction Submitted",
+        description: `Transaction hash: ${tx.hash.slice(0, 10)}...`,
+      })
+
+      const receipt = await tx.wait()
+
+      if (receipt?.status === 1) {
+        toast({
+          title: "Payment Approved!",
+          description: "The provider can now claim the payment.",
+        })
+        await loadOrderData(true)
+      } else {
+        throw new Error("Transaction failed")
+      }
+    } catch (error: any) {
+      console.error("[APPROVE PAYMENT] Error:", error)
+
+      let errorMessage = "Failed to approve payment. Please try again."
+      if (error.code === "ACTION_REJECTED" || error.message?.includes("user rejected")) {
+        errorMessage = "Transaction was cancelled."
+      } else if (error.message) {
+        errorMessage = error.message
+      }
+
+      toast({
+        title: "Approval Failed",
+        description: errorMessage,
+        variant: "destructive",
+      })
+    } finally {
+      setIsApprovingPayment(false)
+    }
+  }
+
+  const handleClaimPayment = async () => {
+    if (!order) {
+      toast({
+        title: "Cannot Claim Payment",
+        description: "Order data is not available. Please refresh the page and try again.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      setIsClaimingPayment(true)
+      console.log(`[CLAIM PAYMENT] Starting payment claim for Order ${orderId}`)
+
+      const freshOrder = await contractService.getOrder(parseInt(orderId))
+
+      if (!currentUserAddress) {
+        toast({
+          title: "Wallet Not Connected",
+          description: "Please connect your MetaMask wallet to continue.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      if (freshOrder.provider.toLowerCase() !== currentUserAddress.toLowerCase()) {
+        toast({
+          title: "Not Authorized",
+          description: `Only the provider can claim payment.`,
+          variant: "destructive",
+        })
+        return
+      }
+
+      if (!freshOrder.paymentApproved || freshOrder.paymentReleased) {
+        toast({
+          title: "Cannot Claim",
+          description: "Payment must be approved and not already claimed.",
+          variant: "destructive",
+        })
+        await loadOrderData(true)
+        return
+      }
+
+      toast({
+        title: "Claiming Payment",
+        description: "Please confirm the transaction in MetaMask...",
+      })
+
+      const tx = await contractService.claimPayment(parseInt(orderId))
+
+      toast({
+        title: "Transaction Submitted",
+        description: `Transaction hash: ${tx.hash.slice(0, 10)}...`,
+      })
+
+      const receipt = await tx.wait()
+
+      if (receipt?.status === 1) {
+        toast({
+          title: "Payment Claimed!",
+          description: "The payment has been transferred to your wallet.",
+        })
+        await loadOrderData(true)
+      } else {
+        throw new Error("Transaction failed")
+      }
+    } catch (error: any) {
+      console.error("[CLAIM PAYMENT] Error:", error)
+
+      let errorMessage = "Failed to claim payment. Please try again."
+      if (error.code === "ACTION_REJECTED" || error.message?.includes("user rejected")) {
+        errorMessage = "Transaction was cancelled."
+      } else if (error.message) {
+        errorMessage = error.message
+      }
+
+      toast({
+        title: "Claim Failed",
+        description: errorMessage,
+        variant: "destructive",
+      })
+    } finally {
+      setIsClaimingPayment(false)
     }
   }
 

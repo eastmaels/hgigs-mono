@@ -36,6 +36,7 @@ export interface Order {
   isPaid: boolean
   paymentReleased: boolean
   createdAt: Date
+  paymentApproved: boolean
 }
 
 export interface Network {
