@@ -2,6 +2,11 @@
 
 A full-stack decentralized marketplace for freelance services built on the Hedera network. This monorepo contains both the smart contract and the Next.js frontend application.
 
+* [Hashgraph Dev Course Certificate](https://drive.google.com/file/d/1H-6JSYSW5k7c9bpnnh4tCmtCz_TMbILm/view?usp=sharing)
+* [Pitchdeck](https://docs.google.com/presentation/d/1ZIy5HskM6jHk-AcKBwea-5zjxvwJstGs/edit?usp=sharing&ouid=102514457800052031008&rtpof=true&sd=true)
+* [Demo Video](https://www.youtube.com/watch?v=mqepuTEs8Fg)
+* [Demo App](https://hgigs.vercel.app/)
+
 ## Project Structure
 
 ```
