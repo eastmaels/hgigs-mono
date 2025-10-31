@@ -30,6 +30,7 @@ export default function ProviderOrdersPage() {
   const [orders, setOrders] = useState<ExtendedOrder[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [completingOrderId, setCompletingOrderId] = useState<string | null>(null)
+  const [claimingOrderId, setClaimingOrderId] = useState<string | null>(null)
   const [userAddress, setUserAddress] = useState<string>("")
   const [deliverables, setDeliverables] = useState<{[orderId: string]: string}>({})
   const [showDeliverableInput, setShowDeliverableInput] = useState<{[orderId: string]: boolean}>({})
@@ -86,6 +87,70 @@ export default function ProviderOrdersPage() {
       })
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const handleClaimPayment = async (orderId: string) => {
+    try {
+      setClaimingOrderId(orderId)
+
+      console.log(`[PROVIDER] Claiming payment for order ${orderId}`)
+
+      toast({
+        title: "Processing",
+        description: "Please confirm the transaction to claim your payment...",
+      })
+
+      const tx = await contractService.claimPayment(parseInt(orderId))
+
+      toast({
+        title: "Transaction Submitted",
+        description: `Transaction hash: ${tx.hash.slice(0, 10)}...`,
+      })
+
+      // Wait for confirmation
+      const receipt = await tx.wait()
+
+      if (receipt?.status === 1) {
+        toast({
+          title: "Payment Claimed! 💰",
+          description: "Your payment has been successfully transferred to your wallet.",
+        })
+
+        // Refresh orders
+        await loadProviderOrders()
+      } else {
+        throw new Error("Transaction failed")
+      }
+
+    } catch (error: any) {
+      console.error("Error claiming payment:", error)
+
+      let errorMessage = "Failed to claim payment"
+      if (error.code === "ACTION_REJECTED" || error.code === 4001 || error.message?.includes("user rejected")) {
+        errorMessage = "Transaction was rejected by user"
+      } else if (error.message?.includes("Payment not approved")) {
+        errorMessage = "Payment has not been approved by the client yet"
+      } else if (error.message?.includes("Payment already released")) {
+        errorMessage = "Payment has already been claimed"
+      } else if (error.message?.includes("Only order provider")) {
+        errorMessage = "Only the order provider can claim this payment"
+      } else if (error.reason) {
+        errorMessage = error.reason
+      } else if (error.revert?.args?.[0]) {
+        errorMessage = error.revert.args[0]
+      } else if (error.message) {
+        const match = error.message.match(/\"([^\"]+)\"/)
+        errorMessage = match ? match[1] : error.message
+      }
+
+      toast({
+        title: "Error",
+        description: errorMessage,
+        variant: "destructive",
+      })
+    } finally {
+      setClaimingOrderId(null)
     }
   }
 
@@ -276,12 +341,35 @@ export default function ProviderOrdersPage() {
         </div>
       )
     } else if (order.isCompleted && !order.paymentReleased) {
-      return (
-        <div className="text-sm text-muted-foreground">
-          <Clock className="h-4 w-4 inline mr-1" />
-          Waiting for client to release payment
-        </div>
-      )
+      // Check if payment has been approved by client
+      if (order.paymentApproved) {
+        return (
+          <Button
+            onClick={() => handleClaimPayment(order.id)}
+            disabled={claimingOrderId === order.id}
+            className="bg-green-600 hover:bg-green-700"
+          >
+            {claimingOrderId === order.id ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Claiming...
+              </>
+            ) : (
+              <>
+                <DollarSign className="h-4 w-4 mr-2" />
+                Claim Payment
+              </>
+            )}
+          </Button>
+        )
+      } else {
+        return (
+          <div className="text-sm text-muted-foreground">
+            <Clock className="h-4 w-4 inline mr-1" />
+            Waiting for client to release payment
+          </div>
+        )
+      }
     } else {
       return (
         <div className="text-sm text-green-600 font-medium">

@@ -2,27 +2,27 @@
   "hedera_testnet": {
     "latest": {
       "proxyAddress": "0xA96a94436e8A753c2f16082F0f08afE25ffae393",
-      "implementationAddress": "0x3AD26864639e01d8193e8957FD28BFCEaE060DeC",
+      "implementationAddress": "0xb7dced84E71A810ea12fdc3B3C39CE783A2777ce",
       "deployerAddress": "0x7CF906b70Bf719BD28d2132323e781A6D8011Fe4",
       "transactionHash": "0xcc247af011eb803eff6a97049eff750c7329bbdd5d3bfbbeee75d9374434c130",
       "network": "hedera_testnet",
       "timestamp": "2025-10-23T02:00:19.924Z",
       "chainId": "296",
       "lastUpgradeHash": "N/A",
-      "lastUpgradeTimestamp": "2025-10-26T14:37:42.680Z",
+      "lastUpgradeTimestamp": "2025-10-29T13:54:28.135Z",
       "lastUpgradeBy": "0x7CF906b70Bf719BD28d2132323e781A6D8011Fe4"
     },
     "history": [
       {
         "proxyAddress": "0xA96a94436e8A753c2f16082F0f08afE25ffae393",
-        "implementationAddress": "0x3AD26864639e01d8193e8957FD28BFCEaE060DeC",
+        "implementationAddress": "0xb7dced84E71A810ea12fdc3B3C39CE783A2777ce",
         "deployerAddress": "0x7CF906b70Bf719BD28d2132323e781A6D8011Fe4",
         "transactionHash": "0xcc247af011eb803eff6a97049eff750c7329bbdd5d3bfbbeee75d9374434c130",
         "network": "hedera_testnet",
         "timestamp": "2025-10-23T02:00:19.924Z",
         "chainId": "296",
         "lastUpgradeHash": "N/A",
-        "lastUpgradeTimestamp": "2025-10-26T14:37:42.680Z",
+        "lastUpgradeTimestamp": "2025-10-29T13:54:28.135Z",
         "lastUpgradeBy": "0x7CF906b70Bf719BD28d2132323e781A6D8011Fe4"
       }
     ]
