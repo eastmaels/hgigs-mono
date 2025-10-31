@@ -5,24 +5,23 @@ import { useAuth } from "@/contexts/auth-context"
 import { Wallet, LogOut, User, AlertTriangle, Network } from "lucide-react"
 import Link from "next/link"
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Separator } from "@/components/ui/separator"
 
 export function WalletConnect() {
-  const { 
-    isConnected, 
-    address, 
-    userProfile, 
-    connectWallet, 
-    disconnectWallet, 
-    isLoading, 
-    isOnHederaNetwork, 
-    switchToHedera 
+  const {
+    isConnected,
+    address,
+    userProfile,
+    connectWallet,
+    disconnectWallet,
+    isLoading,
+    isOnHederaNetwork,
+    switchToHedera
   } = useAuth()
 
   const formatAddress = (addr: string) => {
@@ -61,9 +60,9 @@ export function WalletConnect() {
             <AlertTriangle className="h-4 w-4" />
             <AlertDescription className="text-xs ml-2">
               Please switch to Hedera Testnet
-              <Button 
-                variant="link" 
-                size="sm" 
+              <Button
+                variant="link"
+                size="sm"
                 className="h-auto p-0 ml-1 text-amber-800 underline"
                 onClick={handleSwitchToHedera}
               >
@@ -72,48 +71,77 @@ export function WalletConnect() {
             </AlertDescription>
           </Alert>
         )}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm">
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="sm" type="button">
               <User className="h-4 w-4 mr-2" />
               {isOnHederaNetwork && <div className="h-2 w-2 bg-green-500 rounded-full mr-1" />}
               <span className="hidden sm:inline">{userProfile.username || formatAddress(address)}</span>
             </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
-            <div className="px-2 py-1.5 text-sm">
-              <div className="font-medium">{userProfile.username || "Anonymous User"}</div>
-              <div className="text-muted-foreground">{formatAddress(address)}</div>
-              <div className="text-xs text-muted-foreground mt-1">
-                {isOnHederaNetwork ? "✓ Hedera Testnet" : "⚠ Wrong Network"}
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-64">
+            <div className="space-y-4">
+              {/* Profile Info */}
+              <div className="space-y-1">
+                <div className="font-medium text-sm">{userProfile.username || "Anonymous User"}</div>
+                <div className="text-muted-foreground text-xs">{formatAddress(address)}</div>
+                <div className="text-xs text-muted-foreground">
+                  {isOnHederaNetwork ? "✓ Hedera Testnet" : "⚠ Wrong Network"}
+                </div>
               </div>
+
+              <Separator />
+
+              {/* Network Switch */}
+              {!isOnHederaNetwork && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full justify-start"
+                    onClick={handleSwitchToHedera}
+                  >
+                    <Network className="h-4 w-4 mr-2" />
+                    Switch to Hedera Testnet
+                  </Button>
+                  <Separator />
+                </>
+              )}
+
+              {/* Navigation Links */}
+              <div className="space-y-1">
+                <Link href="/profile" className="block">
+                  <Button variant="ghost" size="sm" className="w-full justify-start">
+                    Profile Settings
+                  </Button>
+                </Link>
+                <Link href="/dashboard" className="block">
+                  <Button variant="ghost" size="sm" className="w-full justify-start">
+                    Dashboard
+                  </Button>
+                </Link>
+                <Link href="/my-gigs" className="block">
+                  <Button variant="ghost" size="sm" className="w-full justify-start">
+                    My Gigs
+                  </Button>
+                </Link>
+              </div>
+
+              <Separator />
+
+              {/* Disconnect Button */}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full justify-start text-destructive hover:text-destructive hover:bg-destructive/10"
+                onClick={disconnectWallet}
+              >
+                <LogOut className="h-4 w-4 mr-2" />
+                Disconnect Wallet
+              </Button>
             </div>
-            <DropdownMenuSeparator />
-            {!isOnHederaNetwork && (
-              <>
-                <DropdownMenuItem onClick={handleSwitchToHedera}>
-                  <Network className="h-4 w-4 mr-2" />
-                  Switch to Hedera Testnet
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-              </>
-            )}
-            <DropdownMenuItem asChild>
-              <Link href="/profile">Profile Settings</Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link href="/dashboard">Dashboard</Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link href="/my-gigs">My Gigs</Link>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={disconnectWallet}>
-              <LogOut className="h-4 w-4 mr-2" />
-              Disconnect Wallet
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+          </PopoverContent>
+        </Popover>
       </div>
     )
   }
